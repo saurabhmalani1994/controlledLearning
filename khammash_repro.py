@@ -8,29 +8,29 @@ import torch
 def def_pars():
 
     #PVAR
-    alpha_T  = 7.2e-3
-    alpha_C = 6.467e-6
-    KG = 57.1585
-    hON_min = 2.0202e-7
-    hON_max = 2.0020e-5
-    KL = 1.9851e3
-    nL = 1.3548
-    nG = 1.5557
-    hC = 1.5388
-    gamma_mol2fluo = 0.2549
-    L0 = 196.3930
+    alpha_T  = 7.227552687697e-3
+    alpha_C = 6.467024536808274e-6
+    KG = 57.158526714327490
+    hON_min = 2.020162670696560e-7
+    hON_max = 2.001991006981458e-5
+    KL = 1.985087802239813e3
+    nL = 1.354848683543133
+    nG = 1.555710381562409
+    hC = 1.538847970212344
+    gamma_mol2fluo = 0.254897149724905
+    L0 = 196.3930019326237
 
     pvar = [alpha_T, alpha_C, KG, hON_min, hON_max, KL, nL, nG, hC, gamma_mol2fluo, L0]
 
     #PFIX
     Np = 10
     KD = 1300
-    KC = 0.3333
+    KC = 0.33333333333333333
     kappa = 90
     nr = 12221
     nT = 597
     nC = 219
-    g0 = 0.0987
+    g0 = 0.098685
     PhiR_max = 0.5470
     PhiR0 = 0.0660
     rho_cell = 2e9
@@ -49,12 +49,12 @@ def get_init_cond(tmax = 200, L0=None):
 
     return initial_sol.y[:, -1]
 
-def lambda_p_fun(C):
+def lambda_p_fun(C, Tt):
     pvar, pfix = def_pars()
     _, _, _, _, _, _, _, _, hC, _, _ = pvar
     _, KD, KC, kappa, _, nT, nC, g0, PhiR_max, PhiR0, rho_cell, nu, AE = pfix
 
-    PhiS = (nT * 100 + nC * C) / rho_cell
+    PhiS = (nT * Tt + nC * C) / rho_cell
     lambda_p = (PhiR_max - PhiR0 - PhiS) * (nu * g0) / (g0 + nu * (1 + (AE/KD)/(1+((C/(kappa * KC)) ** hC))))
 
     return lambda_p
@@ -72,7 +72,7 @@ def compute_groups(L, Td, lambda_p):
 
     return hON, gON, r_u
 
-def ode_fun(t,x, L, lambda_c=1.58369475/60):
+def ode_fun(t,x, L, lambda_c=0.0263949125):
     # Variables     
     Tt, Td, C, phi_p = x
 
@@ -88,7 +88,7 @@ def ode_fun(t,x, L, lambda_c=1.58369475/60):
     phi_p = np.max([phi_p, 0])
 
     # Growth Rate
-    lambda_p = lambda_p_fun(C)
+    lambda_p = lambda_p_fun(C, Tt)
 
     # Useful functions
     hON, gON, r_u = compute_groups(L, Td, lambda_p)
@@ -140,7 +140,10 @@ def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=T
         t_arr = np.array([t_arr])
 
     def sp_fun(t):
-        sp = sp_arr[np.argmax(np.cumsum(t_arr) > t)]
+        if t >= np.sum(t_arr):
+            sp = sp_arr[-1]
+        else:
+            sp = sp_arr[np.argmax(np.cumsum(t_arr) > t)]
         return sp
     
     if len(sp_arr) != len(t_arr):
@@ -151,23 +154,36 @@ def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=T
     output_L = []
     output_sp = []
 
-    output_y.append(initial_cond.reshape(-1,1))
-    output_t.append(np.array([0]))
-    output_L.append(np.array([L0]))
-    output_sp.append(np.array(sp_fun(0)))
-
     t_first = 0
     t_last = np.sum(t_arr)
     t_next = t_first + sampling_time
 
-    # Initial condition
-    error_old = 0
-    sp_old = sp_fun(t_first)
+    # Initial Controller Action
+    # Compute error
+    sp = sp_fun(0)
+    error = sp - phi_p0
+    error_old = error
     error_accum = 0
 
-    u = L0 / 800
-    u0 = u
-    L = L0
+    # Compute integral
+    error_accum = error_accum + error * (sampling_time * 60)
+    
+    # Compute output
+    u_compute = round(Kp * error + Kd * (error - error_old)/(sampling_time * 60) + Ki * error_accum)
+
+    # Saturation
+    u = np.clip(u_compute, 0, 800)
+    L = u #* 800
+
+    # Back-calculation (anti-windup)
+    bc = u - u_compute
+    error_accum = error_accum + bc * Kbc
+
+    error_old = error
+    output_y.append(initial_cond.reshape(-1,1))
+    output_t.append(np.array([0]))
+    output_L.append(np.array([L]))
+    output_sp.append(np.array(sp_fun(0)))
 
     while t_next <= t_last:
         # print(t_next, L)
@@ -197,18 +213,18 @@ def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=T
         #     u0 = u
 
         # Compute integral
-        error_accum = error_accum + error * sampling_time
+        error_accum = error_accum + error * (sampling_time * 60)
         
         # Compute output
-        u_compute = u0 + Kp * error + Kd * (error - error_old)/sampling_time + Ki * error_accum
+        u_compute = np.round(Kp * error + Kd * (error - error_old)/(sampling_time * 60) + Ki * error_accum)
 
         # Saturation
-        u = np.clip(u_compute, 0, 1)
-        L = u * 800
+        u = np.clip(u_compute, 0, 800)
+        L = u #* 800
 
         # Back-calculation (anti-windup)
         bc = u - u_compute
-        error_accum = error_accum + bc * Ki * Kbc
+        error_accum = error_accum + bc * Kbc
 
         error_old = error
 
@@ -255,6 +271,7 @@ def datagen(n_traj, sp_per_traj):
     t_arr = np.array([50] * sp_per_traj)
     phi_out = []
     L_out = []
+    sp_out = []
 
     for i in tqdm(range(n_traj)):
         sp_arr = np.random.rand(sp_per_traj) * 0.5 + 0.2
@@ -263,8 +280,9 @@ def datagen(n_traj, sp_per_traj):
         t, y, L, sp = integrate_CL(u0, L0, pid_pars(), sp_arr, t_arr, sampling_time=0.5, detail=False)
         phi_out.append(y[3,:])
         L_out.append(L)
+        sp_out.append(sp)
 
-    return np.array(phi_out), np.array(L_out)
+    return np.array(phi_out), np.array(L_out), np.array(sp_out)
 
 def time_embed(phi, L, n_embed, n_gap=1):
     phi_out_t0 = []
