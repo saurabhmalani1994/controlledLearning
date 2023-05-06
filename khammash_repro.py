@@ -45,7 +45,7 @@ def get_init_cond(tmax = 200, L0=None):
     if L0 is None:
         pvar, _ = def_pars()
         L0 = pvar[-1]
-    initial_sol = solve_ivp(ode_fun, [0, tmax*60], [100, 100, 100, 0], args=(L0,1.58369475/60), method='BDF', t_eval=[0, tmax*60], atol=1e-10, rtol=1e-10)
+    initial_sol = solve_ivp(ode_fun, [0, tmax*60], [100, 100, 100, 0.5], args=(L0,1.58369475/60), method='BDF', t_eval=[0, tmax*60], atol=1e-10, rtol=1e-10)
 
     return initial_sol.y[:, -1]
 
@@ -82,10 +82,10 @@ def ode_fun(t,x, L, lambda_c=0.0263949125):
     _, _, _, _, _, _, _, _, _, _, _, nu, _ = pfix
 
     # Positive variables
-    Tt = np.max([Tt, 0])
-    Td = np.max([Td, 0])
-    C = np.max([C, 0])
-    phi_p = np.max([phi_p, 0])
+    Tt = np.maximum(Tt, np.zeros_like(Tt))
+    Td = np.maximum(Td, np.zeros_like(Td))
+    C = np.maximum(C, np.zeros_like(C))
+    phi_p = np.maximum(phi_p, np.zeros_like(phi_p))
 
     # Growth Rate
     lambda_p = lambda_p_fun(C, Tt)
@@ -93,11 +93,12 @@ def ode_fun(t,x, L, lambda_c=0.0263949125):
     # Useful functions
     hON, gON, r_u = compute_groups(L, Td, lambda_p)
 
-    ddt = np.zeros(4)
-    ddt[0] = alpha_T * lambda_p * r_u / nu - lambda_p * Tt # dTt/dt
-    ddt[1] = hON * (Tt - 2 * (Td + gON)) ** 2 - lambda_p * (Td+gON) # dTd/dt
-    ddt[2] = alpha_C * (r_u / nu) * gON - lambda_p * C # dC/dt
-    ddt[3] = (lambda_p - lambda_c) * (1 - phi_p) * phi_p # dphi_p/dt
+    dTtdt = (alpha_T * lambda_p * r_u / nu - lambda_p * Tt).squeeze() # dTt/dt
+    dTddt = (hON * (Tt - 2 * (Td + gON)) ** 2 - lambda_p * (Td+gON)).squeeze() # dTd/dt
+    dCdt = (alpha_C * (r_u / nu) * gON - lambda_p * C).squeeze() # dC/dt
+    dphidt = ((lambda_p - lambda_c) * (1 - phi_p) * phi_p).squeeze() # dphi_p/dt
+
+    ddt = np.stack([dTtdt, dTddt, dCdt, dphidt], axis=0).squeeze()
 
     return ddt
 
@@ -131,7 +132,7 @@ def integrate_OL(phi_p0, L_arr, t_arr):
 def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=True):
     Kp, Ki, Kd, Kbc = pid_par
 
-    initial_cond = get_init_cond()
+    initial_cond = get_init_cond(L0=L0)
     initial_cond[-1] = phi_p0
 
     if np.isscalar(sp_arr):

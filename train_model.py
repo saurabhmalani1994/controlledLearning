@@ -10,7 +10,7 @@ import khammash_repro
 
 def main():
     # Generate the data
-    phi, L = khammash_repro.datagen(n_traj=35, sp_per_traj=3)
+    phi, L, _ = khammash_repro.datagen(n_traj=35, sp_per_traj=3)
     # phi, L = khammash_repro.datagen(n_traj=1, sp_per_traj=2)
     phi_out_t0, L_out_t0, phi_out_t1 = khammash_repro.time_embed(phi, L, n_embed=7, n_gap=2)
 
