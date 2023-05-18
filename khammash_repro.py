@@ -129,7 +129,7 @@ def integrate_OL(phi_p0, L_arr, t_arr):
 
     return output_t, output_y
 
-def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=True):
+def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, time_resolution=0.1):
     Kp, Ki, Kd, Kbc = pid_par
 
     initial_cond = get_init_cond(L0=L0)
@@ -188,10 +188,7 @@ def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, detail=T
 
     while t_next <= t_last:
         # print(t_next, L)
-        if detail:
-            t_eval = np.linspace(t_first*60, t_next*60, 1000)
-        else:
-            t_eval = np.array([t_first*60, t_next*60])
+        t_eval = np.arange(t_first*60, t_next*60, time_resolution)
         sol = solve_ivp(ode_fun, [t_first*60, t_next*60], initial_cond, args=(L,), method='BDF', t_eval=t_eval, atol=1e-10, rtol=1e-10)
         output_y.append(sol.y[:,1:])
         output_t.append(sol.t[1:])
@@ -268,22 +265,27 @@ def optimize_gains(x0=None):
 def pid_pars(Kp=9.96358683,  Ki=0.3627385,  Kd=11.52560098,  Kbc=0.15180135):
     return Kp, Ki, Kd, Kbc
 
-def datagen(n_traj, sp_per_traj):
-    t_arr = np.array([50] * sp_per_traj)
-    phi_out = []
+def datagen(n_traj, sp_per_traj, pid_parameters=None, tmax=50, time_resolution=0.1):
+    t_arr = np.array([tmax] * sp_per_traj)
+    y_out = []
     L_out = []
     sp_out = []
+    t_out = []
+
+    if pid_parameters is None:
+        pid_parameters = pid_pars()
 
     for i in tqdm(range(n_traj)):
-        sp_arr = np.random.rand(sp_per_traj) * 0.5 + 0.2
+        sp_arr = np.random.rand(sp_per_traj) * 0.6 + 0.2
         L0 = np.random.rand() * 800
-        u0 = np.random.rand() * 0.5 + 0.2
-        t, y, L, sp = integrate_CL(u0, L0, pid_pars(), sp_arr, t_arr, sampling_time=0.5, detail=False)
-        phi_out.append(y[3,:])
+        u0 = np.random.rand() * 0.6 + 0.2
+        t, y, L, sp = integrate_CL(u0, L0, pid_parameters, sp_arr, t_arr, sampling_time=0.5, time_resolution=time_resolution*60)
+        y_out.append(y)
         L_out.append(L)
         sp_out.append(sp)
+        t_out.append(t)
 
-    return np.array(phi_out), np.array(L_out), np.array(sp_out)
+    return np.array(t_out), np.swapaxes(np.array(y_out),1,2), np.array(L_out), np.array(sp_out)
 
 def time_embed(phi, L, n_embed, n_gap=1):
     phi_out_t0 = []
