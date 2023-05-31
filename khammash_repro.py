@@ -181,19 +181,19 @@ def integrate_CL(phi_p0, L0, pid_par, sp_arr, t_arr, sampling_time=0.5, time_res
     error_accum = error_accum + bc * Kbc
 
     error_old = error
-    output_y.append(initial_cond.reshape(-1,1))
-    output_t.append(np.array([0]))
-    output_L.append(np.array([L]))
-    output_sp.append(np.array(sp_fun(0)))
+    # output_y.append(initial_cond.reshape(-1,1))
+    # output_t.append(np.array([0]))
+    # output_L.append(np.array([L]))
+    # output_sp.append(np.array(sp_fun(0)))
 
     while t_next <= t_last:
         # print(t_next, L)
-        t_eval = np.arange(t_first*60, t_next*60, time_resolution)
+        t_eval = np.arange(t_first*60, t_next*60, time_resolution*60)
         sol = solve_ivp(ode_fun, [t_first*60, t_next*60], initial_cond, args=(L,), method='BDF', t_eval=t_eval, atol=1e-10, rtol=1e-10)
-        output_y.append(sol.y[:,1:])
-        output_t.append(sol.t[1:])
-        output_L.append(np.ones(len(sol.t[1:])) * L)
-        output_sp.append(np.ones(len(sol.t[1:])) * sp_fun(t_next))
+        output_y.append(sol.y[:,:])
+        output_t.append(sol.t[:])
+        output_L.append(np.ones(len(sol.t[:])) * L)
+        output_sp.append(np.ones(len(sol.t[:])) * sp_fun(t_next))
         initial_cond = sol.y[:,-1]
         t_first = t_next
         t_next = t_next + sampling_time
@@ -278,8 +278,8 @@ def datagen(n_traj, sp_per_traj, pid_parameters=None, tmax=50, time_resolution=0
     for i in tqdm(range(n_traj)):
         sp_arr = np.random.rand(sp_per_traj) * 0.6 + 0.2
         L0 = np.random.rand() * 800
-        u0 = np.random.rand() * 0.6 + 0.2
-        t, y, L, sp = integrate_CL(u0, L0, pid_parameters, sp_arr, t_arr, sampling_time=0.5, time_resolution=time_resolution*60)
+        u0 = np.random.rand() #* 0.6 + 0.2
+        t, y, L, sp = integrate_CL(u0, L0, pid_parameters, sp_arr, t_arr, sampling_time=0.5, time_resolution=time_resolution)
         y_out.append(y)
         L_out.append(L)
         sp_out.append(sp)
